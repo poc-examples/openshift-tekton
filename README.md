@@ -29,6 +29,21 @@ spec:
 
 This configuration contains a set of on/off switches and settings (flags) for various features and behaviors of Tekton Pipelines in the OpenShift environment. By changing these, you can control how Tekton behaves and which features are active.
 
+Here we added
+```
+  disable-home-env-overwrite: "false"
+  disable-working-directory-overwrite: "false"
+```
+
+This was for preventing.
+
+```
+warning: unsuccessful cred copy: ".docker" from "/tekton/creds" to "/": unable to create destination directory: mkdir /.docker: permission denied
+Skipping step because a previous step failed
+```
+
+Here is the final feature flag settings in this example.
+
 ```
 apiVersion: v1
 data:
