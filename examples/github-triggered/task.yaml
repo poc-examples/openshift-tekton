@@ -1,0 +1,56 @@
+apiVersion: tekton.dev/v1beta1
+kind: Task
+metadata:
+  name: build-push-spark-image
+  namespace: tekton
+spec:
+  params: 
+    - name: registry 
+      description: The target container registry where the image should be pushed 
+      default: "<container-registry>" 
+    - name: server 
+      description: The target registry server 
+      default: "<container-server>" 
+    - name: repository 
+      description: The repository name 
+      default: "<container-repository>" 
+    - name: tag 
+      description: The image tag 
+      default: "<container-tag>"
+  steps:
+    - name: wget-spark
+      image: busybox
+      script: |
+        wget -O /workspace/spark-3.4.1.tgz \
+          https://dlcdn.apache.org/spark/spark-3.4.1/spark-3.4.1-bin-hadoop3.tgz \
+        && tar -xvf /workspace/spark-3.4.1.tgz -C /workspace/ \
+        && rm -f /workspace/spark-3.4.1.tgz
+      volumeMounts:
+      - name: docker-config
+        mountPath: /workspace/.docker/
+    - name: build-push-image 
+      image: ubuntu:22.04
+      securityContext:
+        privileged: true
+      script: | 
+        apt-get update \
+        && apt-get -y upgrade \
+        && apt install -y podman \
+        && ln -s /usr/bin/podman /usr/bin/docker \
+        && docker --version \
+        && cp -r /workspace/.docker /workspace/.docker-rwx \
+        && cat /workspace/.docker-rwx/.dockerconfigjson > /workspace/.docker-rwx/config.json \
+        && echo "[registries.search]\nregistries = ['docker.io']" > /etc/containers/registries.conf \
+        && /workspace/spark-3.4.1-bin-hadoop3/bin/docker-image-tool.sh -r spark-py -t v3.4.1 -p /workspace/spark-3.4.1-bin-hadoop3/kubernetes/dockerfiles/spark/bindings/python/Dockerfile build \
+        && docker tag localhost/spark-py/spark-py:v3.4.1 $(params.server)/$(params.registry)/$(params.repository):$(params.tag) \
+        && docker push $(params.server)/$(params.registry)/$(params.repository):$(params.tag)
+      env:
+      - name: "DOCKER_CONFIG"
+        value: "/workspace/.docker-rwx/"
+      volumeMounts:
+      - name: docker-config
+        mountPath: /workspace/.docker/
+  volumes:
+  - name: docker-config
+    secret:
+      secretName: quay-secret

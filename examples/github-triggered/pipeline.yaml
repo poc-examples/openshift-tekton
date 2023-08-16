@@ -1,0 +1,10 @@
+apiVersion: tekton.dev/v1beta1
+kind: Pipeline
+metadata:
+  name: spark-image-create-pipeline
+  namespace: tekton
+spec:
+  tasks:
+    - name: build-push-spark
+      taskRef:
+        name: build-push-spark-image

@@ -1,0 +1,54 @@
+---
+apiVersion: triggers.tekton.dev/v1alpha1 
+kind: TriggerTemplate 
+metadata: 
+  name: spark-image-pipeline-trigger-template
+  namespace: tekton
+spec: 
+  params: 
+    - name: gitrevision 
+      description: The git revision 
+      default: master 
+  resourcetemplates: 
+    - apiVersion: tekton.dev/v1beta1 
+      kind: PipelineRun 
+      metadata: 
+        name: github-pipeline-run-$(uid)
+        namespace: tekton
+      spec:
+        serviceAccountName: spark-tekton-sa
+        pipelineRef: 
+          name: spark-image-create-pipeline
+        params: 
+          - name: server 
+            value: "<container-server>" 
+          - name: tag 
+            value: "<container-tag>"
+          - name: repository 
+            value: "<container-repository>"
+          - name: registry
+            value: "<container-registry>"
+---
+apiVersion: triggers.tekton.dev/v1alpha1
+kind: TriggerBinding
+metadata:
+  name: github-binding
+  namespace: tekton
+spec:
+  params:
+    - name: gitrevision
+      value: $(body.head_commit.id)
+---
+apiVersion: triggers.tekton.dev/v1alpha1
+kind: EventListener
+metadata:
+  name: github-event-listener
+  namespace: tekton
+spec:
+  serviceAccountName: spark-tekton-sa
+  triggers:
+    - name: github-event-trigger
+      bindings:
+        - ref: github-binding
+      template:
+        ref: spark-image-pipeline-trigger-template
