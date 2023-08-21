@@ -4,7 +4,44 @@ metadata:
   name: spark-image-create-pipeline
   namespace: tekton
 spec:
+  workspaces:
+    - name: shared-data
+    - name: containers
+    - name: credentials
   tasks:
-    - name: build-push-spark
+    - name: git-clone
+      params:
+        - name: url
+          value: 'https://github.com/cengleby86/bc-test-image.git'
+        - name: revision
+          value: 'main'
+        - name: sslVerify
+          value: 'false'
+        - name: noProxy
+          value: 'true'
       taskRef:
-        name: build-push-spark-image
+        kind: ClusterTask
+        name: git-clone
+      workspaces:
+      - name: output
+        workspace: shared-data
+    - name: container-build
+      taskRef:
+        name: podman-build
+      runAfter: 
+      - git-clone
+      workspaces:
+      - workspace: containers
+        name: containers
+      - workspace: shared-data
+        name: shared-data
+    - name: container-push
+      taskRef:
+        name: podman-push
+      runAfter: 
+      - container-build
+      workspaces:
+      - workspace: containers
+        name: containers
+      - workspace: credentials
+        name: credentials

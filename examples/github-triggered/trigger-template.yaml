@@ -28,6 +28,20 @@ spec:
             value: "<container-repository>"
           - name: registry
             value: "<container-registry>"
+        podTemplate:
+          securityContext:
+            runAsUser: 1001
+            fsGroup: 65532
+        workspaces:
+        - name: shared-data
+          persistentVolumeClaim:
+            claimName: clone-output
+        - name: containers
+          persistentVolumeClaim:
+            claimName: varlibcontainers
+        - name: credentials
+          secret:
+            secretName: quay-secret
 ---
 apiVersion: triggers.tekton.dev/v1alpha1
 kind: TriggerBinding
