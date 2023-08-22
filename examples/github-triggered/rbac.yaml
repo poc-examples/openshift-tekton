@@ -47,7 +47,7 @@ metadata:
   name: tekton-eventlistener-binding
 subjects:
 - kind: ServiceAccount
-  name: spark-tekton-sa
+  name: tekton-sa
   namespace: tekton
 roleRef:
   kind: ClusterRole

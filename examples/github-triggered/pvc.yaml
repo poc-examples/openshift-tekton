@@ -4,6 +4,8 @@ apiVersion: v1
 metadata:
   name: varlibcontainers
   namespace: tekton
+  labels:
+    backup: "true"
 spec:
   accessModes:
     - ReadWriteOnce

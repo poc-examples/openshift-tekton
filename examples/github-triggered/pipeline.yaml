@@ -1,20 +1,27 @@
 apiVersion: tekton.dev/v1beta1
 kind: Pipeline
 metadata:
-  name: spark-image-create-pipeline
+  name: example-image-build-pipeline
   namespace: tekton
 spec:
+  params:
+    - name: IMAGE_NAME
+    - name: REGISTRY_HOSTNAME
+    - name: REGISTRY_NAMESPACE
+    - name: IMAGE_TAG
+    - name: GITHUB_REPO
+    - name: GITHUB_BRANCH
   workspaces:
-    - name: shared-data
+    - name: source
     - name: containers
     - name: credentials
   tasks:
     - name: git-clone
       params:
         - name: url
-          value: 'https://github.com/cengleby86/bc-test-image.git'
+          value: $(params.GITHUB_REPO)
         - name: revision
-          value: 'main'
+          value: $(params.GITHUB_BRANCH)
         - name: sslVerify
           value: 'false'
         - name: noProxy
@@ -24,8 +31,13 @@ spec:
         name: git-clone
       workspaces:
       - name: output
-        workspace: shared-data
+        workspace: source
     - name: container-build
+      params:
+        - name: IMAGE_NAME
+          value: $(params.IMAGE_NAME)
+        - name: IMAGE_TAG
+          value: $(params.IMAGE_TAG)
       taskRef:
         name: podman-build
       runAfter: 
@@ -33,9 +45,18 @@ spec:
       workspaces:
       - workspace: containers
         name: containers
-      - workspace: shared-data
-        name: shared-data
+      - workspace: source
+        name: source
     - name: container-push
+      params:
+        - name: IMAGE_NAME
+          value: $(params.IMAGE_NAME)
+        - name: IMAGE_TAG
+          value: $(params.IMAGE_TAG)
+        - name: REGISTRY_HOSTNAME
+          value: $(params.REGISTRY_HOSTNAME)
+        - name: REGISTRY_NAMESPACE
+          value: $(params.REGISTRY_NAMESPACE)
       taskRef:
         name: podman-push
       runAfter: 

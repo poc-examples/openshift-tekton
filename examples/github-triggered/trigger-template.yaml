@@ -2,13 +2,12 @@
 apiVersion: triggers.tekton.dev/v1alpha1 
 kind: TriggerTemplate 
 metadata: 
-  name: spark-image-pipeline-trigger-template
+  name: image-pipeline-trigger-template
   namespace: tekton
 spec: 
   params: 
     - name: gitrevision 
-      description: The git revision 
-      default: master 
+      description: The git revision sha
   resourcetemplates: 
     - apiVersion: tekton.dev/v1beta1 
       kind: PipelineRun 
@@ -16,24 +15,28 @@ spec:
         name: github-pipeline-run-$(uid)
         namespace: tekton
       spec:
-        serviceAccountName: spark-tekton-sa
+        serviceAccountName: tekton-sa
         pipelineRef: 
-          name: spark-image-create-pipeline
+          name: example-image-build-pipeline
         params: 
-          - name: server 
-            value: "<container-server>" 
-          - name: tag 
-            value: "<container-tag>"
-          - name: repository 
-            value: "<container-repository>"
-          - name: registry
-            value: "<container-registry>"
+          - name: IMAGE_NAME
+            value: "apache-livy-3.3.0" 
+          - name: REGISTRY_HOSTNAME
+            value: "quay.io" 
+          - name: REGISTRY_NAMESPACE
+            value: "rh_ee_cengleby" 
+          - name: IMAGE_TAG
+            value: $(tt.params.gitrevision)
+          - name: GITHUB_REPO
+            value: 'https://github.com/cengleby86/bc-test-image.git'
+          - name: GITHUB_BRANCH
+            value: 'main'
         podTemplate:
           securityContext:
             runAsUser: 1001
             fsGroup: 65532
         workspaces:
-        - name: shared-data
+        - name: source
           persistentVolumeClaim:
             claimName: clone-output
         - name: containers
@@ -51,7 +54,7 @@ metadata:
 spec:
   params:
     - name: gitrevision
-      value: $(body.head_commit.id)
+      value: "$(body.after)"
 ---
 apiVersion: triggers.tekton.dev/v1alpha1
 kind: EventListener
@@ -59,10 +62,12 @@ metadata:
   name: github-event-listener
   namespace: tekton
 spec:
-  serviceAccountName: spark-tekton-sa
+  serviceAccountName: tekton-sa
   triggers:
     - name: github-event-trigger
       bindings:
         - ref: github-binding
+          kind: TriggerBinding
       template:
-        ref: spark-image-pipeline-trigger-template
+        ref: image-pipeline-trigger-template
+        

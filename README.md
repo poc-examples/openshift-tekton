@@ -91,13 +91,29 @@ This YAML is for creating a `Secret` in Kubernetes, specifically for Docker auth
 
 ```
 apiVersion: v1
-kind: Secret
-type: kubernetes.io/dockerconfigjson
-metadata:
-  name: docker-secret
-  namespace: tekton
 data:
-  .dockerconfigjson: Base64EncodedString
+  config.json: Base64EncodedString
+kind: Secret
+metadata:
+  name: quay-secret
+  namespace: tekton
+type: Opaque
+```
+
+### Create Github Secret
+
+```
+apiVersion: v1
+kind: Secret
+metadata:
+  name: github-basic-auth
+  namespace: tekton
+  annotations:
+    tekton.dev/git-0: github.com/org/repository.git
+type: kubernetes.io/basic-auth
+stringData:
+  username: Base64EncodedString
+  password: Base64EncodedString
 ```
 
 ## Create Service Account

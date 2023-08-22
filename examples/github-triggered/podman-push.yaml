@@ -6,24 +6,19 @@ metadata:
 spec:
   workspaces:
     - name: containers
-      optional: true
       mountPath: /var/lib/containers
     - name: credentials
-      optional: true
       mountPath: /workspace/.docker/
   params: 
-    - name: registry 
-      description: The target container registry where the image should be pushed 
-      default: "<container-registry>" 
-    - name: server 
-      description: The target registry server 
-      default: "<container-server>" 
-    - name: repository 
-      description: The repository name 
-      default: "<container-repository>" 
-    - name: tag 
-      description: The image tag 
-      default: "<container-tag>"
+    - name: IMAGE_NAME
+      description: The name of the image
+    - name: REGISTRY_HOSTNAME
+      description: The hostname of the registry server (quay.io)
+    - name: REGISTRY_NAMESPACE
+      description: The repository namespace
+    - name: IMAGE_TAG
+      description: The image tag
+      default: "latest"
   steps:
     - name: build-image
       image: quay.io/rh_ee_cengleby/podman:0.12
@@ -31,8 +26,8 @@ spec:
         privileged: true
         runAsUser: 0
       script: |
-        podman tag test-image:latest quay.io/rh_ee_cengleby/apache-livy-3.3.0:latest \
-        && podman push quay.io/rh_ee_cengleby/apache-livy-3.3.0:latest
+        podman tag $(params.IMAGE_NAME):$(params.IMAGE_TAG) $(params.REGISTRY_HOSTNAME)/$(params.REGISTRY_NAMESPACE)/$(params.IMAGE_NAME):$(params.IMAGE_TAG) \
+        && podman push $(params.REGISTRY_HOSTNAME)/$(params.REGISTRY_NAMESPACE)/$(params.IMAGE_NAME):$(params.IMAGE_TAG)
       env:
         - name: "DOCKER_CONFIG"
           value: "/workspace/.docker/"

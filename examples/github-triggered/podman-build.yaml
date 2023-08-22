@@ -5,23 +5,17 @@ metadata:
   namespace: tekton
 spec:
   workspaces:
-    - name: shared-data
+    - name: source
     - name: containers
-      optional: true
       mountPath: /var/lib/containers
-  params: 
-    - name: registry 
-      description: The target container registry where the image should be pushed 
-      default: "<container-registry>" 
-    - name: server 
-      description: The target registry server 
-      default: "<container-server>" 
-    - name: repository 
-      description: The repository name 
-      default: "<container-repository>" 
-    - name: tag 
-      description: The image tag 
-      default: "<container-tag>"
+  params:
+    - name: IMAGE_NAME
+      description: The name of the image
+    - name: IMAGE_TAG
+      description: The image tag
+    - name: DOCKERFILE
+      description: The path to dockerfile
+      default: /workspace/source
   steps:
     - name: build-image
       image: quay.io/rh_ee_cengleby/podman:0.12
@@ -29,5 +23,4 @@ spec:
         privileged: true
         runAsUser: 0
       script: |
-        podman build -t test-image /workspace/shared-data \
-
+        podman build -t $(params.IMAGE_NAME):$(params.IMAGE_TAG) $(params.DOCKERFILE)
