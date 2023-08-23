@@ -87,7 +87,7 @@ metadata:
 ```
 ### Create Registry Secret
 
-This YAML is for creating a `Secret` in Kubernetes, specifically for Docker authentication.  It can be used by a task in order to auth into the your registry in order to push images.
+This YAML is for creating a `Secret` in Kubernetes, specifically for Docker authentication.  It can be used by a task in order to auth into the your registry in order to push images.  Use non base64encoded secrets when applying these or they will be base64encoded twice preventing git-clone and other credentials from working properly.
 
 ```
 apiVersion: v1
@@ -118,13 +118,13 @@ stringData:
 
 ## Create Service Account
 
-A ServiceAccount in Kubernetes offers identity for pod processes. When you access the cluster, you're identified by a user account, while processes inside pods are authenticated as a specific ServiceAccount. This "spark-tekton-sa" ServiceAccount might grant permissions, like database access, to workloads within the Tekton pipeline.
+A ServiceAccount in Kubernetes offers identity for pod processes. When you access the cluster, you're identified by a user account, while processes inside pods are authenticated as a specific ServiceAccount. This "tekton-sa" ServiceAccount might grant permissions, like database access, to workloads within the Tekton pipeline.
 
 ```
 apiVersion: v1
 kind: ServiceAccount
 metadata:
-  name: spark-tekton-sa
+  name: tekton-sa
   namespace: tekton
 ```
 
@@ -137,6 +137,8 @@ A `ClusterRole` named "tekton-eventlistener-cluster-role" is created. It specifi
 	- List cluster interceptors and interceptors.
 	- Retrieve event listeners, trigger bindings, and trigger templates.
 	- Create or modify events.
+
+**Note**: You may require more permissions based on what you're trying to achieve. You can tail the logs for the eventlistener which will throw errors if you are missing a permission.  This is a good place to start for fixing issues around the pipeline not starting.
 
 ```
 apiVersion: rbac.authorization.k8s.io/v1
@@ -184,7 +186,7 @@ rules:
 
 ### Bind Permissions to Service Account
 
-A `ClusterRoleBinding` named "tekton-eventlistener-binding" is also established. This binding connects the "tekton-eventlistener-cluster-role" to a ServiceAccount named "spark-tekton-sa" in the "tekton" namespace. Essentially, it grants the permissions defined in the ClusterRole to any pod running with the "spark-tekton-sa" ServiceAccount.
+A `ClusterRoleBinding` named "tekton-eventlistener-binding" is also established. This binding connects the "tekton-eventlistener-cluster-role" to a ServiceAccount named "tekton-sa" in the "tekton" namespace. Essentially, it grants the permissions defined in the ClusterRole to any pod running with the "tekton-sa" ServiceAccount.
 
 ```
 apiVersion: rbac.authorization.k8s.io/v1
@@ -193,7 +195,7 @@ metadata:
   name: tekton-eventlistener-binding
 subjects:
 - kind: ServiceAccount
-  name: spark-tekton-sa
+  name: tekton-sa
   namespace: tekton
 roleRef:
   kind: ClusterRole
@@ -202,150 +204,238 @@ roleRef:
 ```
 ### Define Tekton Tasks
 
-The `build-push-spark-image` Task in the `tekton` namespace automates the process of downloading Apache Spark version 3.4.1, building a Docker image for it using Podman, and pushing the image to a specified container registry. The Task leverages a secret named "quay-secret" mentioned above for authentication during the image push process.
+The `git-clone`|`podman-build`|`podman-push` Tasks in the `tekton` namespace automates the process of cloning a github repo, building a Docker image for it using Podman, and pushing the image to a specified container registry. The Task leverages a secret named `quay-secret` mentioned above for authentication during the image push process.
 
 ```
+---
 apiVersion: tekton.dev/v1beta1
 kind: Task
 metadata:
-  name: build-push-spark-image
-  namespace: tekton
+  name: podman-build
+  namespace: tekton
 spec:
-  params:
-    - name: registry
-      description: The target container registry where the image should be pushed
-      default: "<container_registry>"
-    - name: server
-      description: The target registry server
-      default: "<container_server>"
-    - name: repository
-      description: The repository name
-      default: "<container_repository>"
-    - name: tag
-      description: The image tag
-      default: "<container_tag>"
-  steps:
-    - name: wget-spark
-      image: busybox
-      script: |
-        wget -O /workspace/spark-3.4.1.tgz \
-          https://dlcdn.apache.org/spark/spark-3.4.1/spark-3.4.1-bin-hadoop3.tgz \
-        && tar -xvf /workspace/spark-3.4.1.tgz -C /workspace/ \
-        && rm -f /workspace/spark-3.4.1.tgz
-      volumeMounts:
-      - name: docker-config
-        mountPath: /workspace/.docker/
-    - name: build-push-image
-      image: ubuntu:22.04
-      securityContext:
-        privileged: true
-      script: |
-        apt-get update \
-        && apt-get -y upgrade \
-        && apt install -y podman \
-        && ln -s /usr/bin/podman /usr/bin/docker \
-        && docker --version \
-        && cp -r /workspace/.docker /workspace/.docker-rwx \
-        && cat /workspace/.docker-rwx/.dockerconfigjson > /workspace/.docker-rwx/config.json \
-        && echo "[registries.search]\nregistries = ['docker.io']" > /etc/containers/registries.conf \
-        && /workspace/spark-3.4.1-bin-hadoop3/bin/docker-image-tool.sh -r spark-py -t v3.4.1 -p /workspace/spark-3.4.1-bin-hadoop3/kubernetes/dockerfiles/spark/bindings/python/Dockerfile build \
-        && docker tag localhost/spark-py/spark-py:v3.4.1 $(params.server)/$(params.registry)/$(params.repository):$(params.tag) \
-        && docker push $(params.server)/$(params.registry)/$(params.repository):$(params.tag)
-      env:
-      - name: "DOCKER_CONFIG"
-        value: "/workspace/.docker-rwx/"
-      volumeMounts:
-      - name: docker-config
-        mountPath: /workspace/.docker/
-  volumes:
-  - name: docker-config
-    secret:
-      secretName: quay-secret
+  workspaces:
+    - name: source
+    - name: containers
+      mountPath: /var/lib/containers
+  params:
+    - name: IMAGE_NAME
+      description: The name of the image
+    - name: IMAGE_TAG
+      description: The image tag
+    - name: DOCKERFILE
+      description: The path to dockerfile
+      default: /workspace/source
+  steps:
+    - name: build-image
+      resources:
+        limits:
+          memory: "4Gi"
+        requests:
+          memory: "1Gi"
+      image: quay.io/rh_ee_cengleby/podman:0.12
+      securityContext:
+        privileged: true
+        runAsUser: 0
+      script: |
+        podman build -t $(params.IMAGE_NAME):$(params.IMAGE_TAG) $(params.DOCKERFILE)
+---
+apiVersion: tekton.dev/v1beta1
+kind: Task
+metadata:
+  name: podman-push
+  namespace: tekton
+spec:
+  workspaces:
+    - name: containers
+      mountPath: /var/lib/containers
+    - name: credentials
+      mountPath: /workspace/.docker/
+  params: 
+    - name: IMAGE_NAME
+      description: The name of the image
+    - name: REGISTRY_HOSTNAME
+      description: The hostname of the registry server (quay.io)
+    - name: REGISTRY_NAMESPACE
+      description: The repository namespace
+    - name: IMAGE_TAG
+      description: The image tag
+      default: "latest"
+  steps:
+    - name: build-image
+      image: quay.io/rh_ee_cengleby/podman:0.12
+      securityContext:
+        privileged: true
+        runAsUser: 0
+      script: |
+        podman tag $(params.IMAGE_NAME):$(params.IMAGE_TAG) $(params.REGISTRY_HOSTNAME)/$(params.REGISTRY_NAMESPACE)/$(params.IMAGE_NAME):$(params.IMAGE_TAG) \
+        && podman push $(params.REGISTRY_HOSTNAME)/$(params.REGISTRY_NAMESPACE)/$(params.IMAGE_NAME):$(params.IMAGE_TAG)
+      env:
+        - name: "DOCKER_CONFIG"
+          value: "/workspace/.docker/"
 ```
 
 ### Define a Tekton Pipeline
 
-The `spark-image-create-pipeline` in the `tekton` namespace defines a pipeline that has a single task, `build-push-spark`. This task references another pre-defined task named `build-push-spark-image`, which is responsible for building and pushing a Spark image. Essentially, this pipeline orchestrates the creation and publication of a Spark Docker image.
+The `example-image-build-pipeline` in the `tekton` namespace defines a pipeline that has a multiple tasks, `git-clone`|`podman-build`|`podman-push`. These tasks are responsible for building and pushing a Spark image. Essentially, this pipeline orchestrates the creation and publication of a Docker image hosted in a github repo.
 
 ```
 apiVersion: tekton.dev/v1beta1
 kind: Pipeline
 metadata:
-  name: spark-image-create-pipeline
+  name: example-image-build-pipeline
   namespace: tekton
 spec:
+  params:
+    - name: IMAGE_NAME
+    - name: REGISTRY_HOSTNAME
+    - name: REGISTRY_NAMESPACE
+    - name: IMAGE_TAG
+    - name: GITHUB_REPO
+    - name: GITHUB_BRANCH
+  workspaces:
+    - name: source
+    - name: containers
+    - name: credentials
   tasks:
-    - name: build-push-spark
+    - name: git-clone
+      params:
+        - name: url
+          value: $(params.GITHUB_REPO)
+        - name: revision
+          value: $(params.GITHUB_BRANCH)
+        - name: sslVerify
+          value: 'false'
+        - name: noProxy
+          value: 'true'
       taskRef:
-        name: build-push-spark-image
+        kind: ClusterTask
+        name: git-clone
+      workspaces:
+      - name: output
+        workspace: source
+    - name: container-build
+      params:
+        - name: IMAGE_NAME
+          value: $(params.IMAGE_NAME)
+        - name: IMAGE_TAG
+          value: $(params.IMAGE_TAG)
+      taskRef:
+        name: podman-build
+      runAfter: 
+      - git-clone
+      workspaces:
+      - workspace: containers
+        name: containers
+      - workspace: source
+        name: source
+    - name: container-push
+      params:
+        - name: IMAGE_NAME
+          value: $(params.IMAGE_NAME)
+        - name: IMAGE_TAG
+          value: $(params.IMAGE_TAG)
+        - name: REGISTRY_HOSTNAME
+          value: $(params.REGISTRY_HOSTNAME)
+        - name: REGISTRY_NAMESPACE
+          value: $(params.REGISTRY_NAMESPACE)
+      taskRef:
+        name: podman-push
+      runAfter: 
+      - container-build
+      workspaces:
+      - workspace: containers
+        name: containers
+      - workspace: credentials
+        name: credentials
 ```
 
 ### Define a Trigger Template
 
-The `spark-image-pipeline-trigger-template` in the `tekton` namespace is a `TriggerTemplate` designed to initiate a pipeline run upon some external trigger, like a GitHub webhook. This template takes a parameter `gitrevision` which defaults to `master`. When triggered, it creates a `PipelineRun` of the `spark-image-create-pipeline`, naming the run with a unique identifier (`$(uid)`). This pipeline run is set to use the `spark-tekton-sa` service account and passes several container-related parameters, such as the server, tag, repository, and registry, to the pipeline. The placeholders for these values are indicated by `< >` brackets.
+The `spark-image-pipeline-trigger-template` in the `tekton` namespace is a `TriggerTemplate` designed to initiate a pipeline run upon some external trigger, like a GitHub webhook. This template takes a parameter `gitrevision` which defaults to `master`. When triggered, it creates a `PipelineRun` of the `spark-image-create-pipeline`, naming the run with a unique identifier (`$(uid)`). This pipeline run is set to use the `tekton-sa` service account and passes several container-related parameters, such as the server, tag, repository, and registry, to the pipeline. The placeholders for these values are indicated by `< >` brackets.
 
 ```
 apiVersion: triggers.tekton.dev/v1alpha1 
 kind: TriggerTemplate 
 metadata: 
-  name: spark-image-pipeline-trigger-template
-  namespace: tekton
+  name: image-pipeline-trigger-template
+  namespace: tekton
 spec: 
   params: 
     - name: gitrevision 
-      description: The git revision 
-      default: master 
+      description: The git revision sha
   resourcetemplates: 
     - apiVersion: tekton.dev/v1beta1 
-	  kind: PipelineRun 
-	  metadata: 
-	    name: github-pipeline-run-$(uid) 
-	    namespace: tekton
-	  spec:
-		serviceAccountName: spark-tekton-sa
-	    pipelineRef: 
-		  name: spark-image-create-pipeline
-		params: 
-		  - name: server
-			value: "<container_server>"
-		  - name: tag
-			value: "<container_tag>"
-		  - name: repository
-			value: "<container_repository>"
-		  - name: registry
-			value: "<container_registry>"
+      kind: PipelineRun 
+      metadata: 
+        name: github-pipeline-run-$(uid)
+        namespace: tekton
+      spec:
+        serviceAccountName: tekton-sa
+        pipelineRef: 
+          name: example-image-build-pipeline
+        params: 
+          - name: IMAGE_NAME
+            value: "your_image" 
+          - name: REGISTRY_HOSTNAME
+            value: "quay.io" 
+          - name: REGISTRY_NAMESPACE
+            value: "your_namespace" 
+          - name: IMAGE_TAG
+            value: $(tt.params.gitrevision)
+          - name: GITHUB_REPO
+            value: 'https://github.com/your_repo/bc-test-image.git'
+          - name: GITHUB_BRANCH
+            value: 'main'
+        podTemplate:
+          securityContext:
+            runAsUser: 1001
+            fsGroup: 65532
+        workspaces:
+        - name: source
+          persistentVolumeClaim:
+            claimName: clone-output
+        - name: containers
+          persistentVolumeClaim:
+            claimName: varlibcontainers
+        - name: credentials
+          secret:
+            secretName: quay-secret
 ```
 ### Define a Trigger Binding
 
-The `TriggerBinding` named `github-binding` is designed to extract specific data from an incoming event payload, like a webhook from GitHub. In this case, it captures the latest commit ID from the GitHub webhook's payload (`$(body.head_commit.id)`) and assigns it to a parameter named `gitrevision`. This binding essentially bridges external event data to be consumed by a Tekton pipeline or task.
+The `TriggerBinding` named `github-binding` is designed to extract specific data from an incoming event payload, like a webhook from GitHub. In this case, it captures the latest commit sha from the GitHub webhook's payload (`$(body.after)`) and assigns it to a parameter named `gitrevision`. This binding essentially bridges external event data to be consumed by a Tekton pipeline or task.
 
 ```
 apiVersion: triggers.tekton.dev/v1alpha1
 kind: TriggerBinding
 metadata:
   name: github-binding
+  namespace: tekton
 spec:
   params:
     - name: gitrevision
-      value: $(body.head_commit.id)
+      value: "$(body.after)"
 ```
 ### Define an Event Listener
 
-The `EventListener` named `github-event-listener` listens for external events, like webhooks from GitHub. When an event is received, it uses the `spark-tekton-sa` service account and processes the event with a defined trigger named `github-event-trigger`. This trigger binds the event data using `github-binding` and then invokes the `spark-image-pipeline-trigger-template` to initiate the corresponding Tekton actions (like running a pipeline) based on the processed event data.
+The `EventListener` named `github-event-listener` listens for external events, like webhooks from GitHub. When an event is received, it uses the `tekton-sa` service account and processes the event with a defined trigger named `github-event-trigger`. This trigger binds the event data using `github-binding` and then invokes the `image-pipeline-trigger-template` to initiate the corresponding Tekton actions (like running a pipeline) based on the processed event data.
 
 ```
 apiVersion: triggers.tekton.dev/v1alpha1
 kind: EventListener
 metadata:
   name: github-event-listener
+  namespace: tekton
 spec:
-  serviceAccountName: spark-tekton-sa
+  serviceAccountName: tekton-sa
   triggers:
     - name: github-event-trigger
       bindings:
         - ref: github-binding
+          kind: TriggerBinding
       template:
-        ref: spark-image-pipeline-trigger-template
+        ref: image-pipeline-trigger-template
 ```
 ### Expose the Event Listener
 
@@ -379,3 +469,4 @@ spec:
 - Choose the events you wish the webhook to trigger on (e.g., "push").
 - Set the content type to `application/json`.
 - Save the webhook.
+- Customize this webhook as called for by your usecase.
