@@ -1,0 +1,45 @@
+---
+apiVersion: triggers.tekton.dev/v1alpha1 
+kind: TriggerTemplate 
+metadata: 
+  name: image-pipeline-trigger-template
+  namespace: tekton
+spec:
+  resourcetemplates: 
+    - apiVersion: tekton.dev/v1beta1 
+      kind: PipelineRun 
+      metadata: 
+        name: github-image-updater-run-$(uid)
+        namespace: tekton
+      spec:
+        serviceAccountName: tekton-sa
+        pipelineRef: 
+          name: open-github-pull-request
+        params:
+          - name: GITHUB_TOKEN_SECRET_KEY
+            value: token
+          - name: GITHUB_TOKEN_SECRET_NAME
+            value: github-auth-token
+          - name: GITHUB_REPO
+            value: poc-examples/openshift-website-manifests
+        podTemplate:
+          securityContext:
+            runAsUser: 1001
+            fsGroup: 65532
+---
+apiVersion: triggers.tekton.dev/v1alpha1
+kind: EventListener
+metadata:
+  name: github-event-listener
+  namespace: tekton
+spec:
+  serviceAccountName: tekton-sa
+  triggers:
+    - name: github-event-trigger
+      interceptors:
+        - cel:
+            filter: >
+              (header.match("X-GitHub-Event", "push") && 
+              body.ref == "refs/heads/autoupdate")
+      template:
+        ref: image-pipeline-trigger-template

@@ -1,0 +1,30 @@
+apiVersion: tekton.dev/v1beta1
+kind: Pipeline
+metadata:
+  name: open-github-pull-request
+  namespace: tekton
+spec:
+  params:
+    - name: GITHUB_TOKEN_SECRET_KEY
+    - name: GITHUB_TOKEN_SECRET_NAME
+    - name: GITHUB_REPO
+  tasks:
+    - name: open-github-pull-request
+      params:
+        - name: REPO_FULL_NAME
+          value: $(params.GITHUB_REPO)
+        - name: GITHUB_TOKEN_SECRET_NAME
+          value: $(params.GITHUB_TOKEN_SECRET_NAME)
+        - name: GITHUB_TOKEN_SECRET_KEY
+          value: $(params.GITHUB_TOKEN_SECRET_KEY)
+        - name: HEAD
+          value: autoupdate
+        - name: BASE
+          value: main
+        - name: TITLE
+          value: "Merge autoupdate into main"
+        - name: BODY
+          value: "Automated through Github action"
+      taskRef:
+        kind: Task
+        name: github-open-pr
