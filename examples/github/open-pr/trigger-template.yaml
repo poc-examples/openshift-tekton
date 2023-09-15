@@ -20,8 +20,10 @@ spec:
             value: token
           - name: GITHUB_TOKEN_SECRET_NAME
             value: github-auth-token
-          - name: GITHUB_REPO
+          - name: REPO_FULL_NAME
             value: poc-examples/openshift-website-manifests
+          - name: GITHUB_HOST_URL
+            value: api.github.com
         podTemplate:
           securityContext:
             runAsUser: 1001

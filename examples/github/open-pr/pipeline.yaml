@@ -7,12 +7,15 @@ spec:
   params:
     - name: GITHUB_TOKEN_SECRET_KEY
     - name: GITHUB_TOKEN_SECRET_NAME
-    - name: GITHUB_REPO
+    - name: GITHUB_REPO_FULL_NAME
+    - name: GITHUB_HOST_URL
   tasks:
     - name: open-github-pull-request
       params:
         - name: REPO_FULL_NAME
-          value: $(params.GITHUB_REPO)
+          value: $(params.GITHUB_REPO_FULL_NAME)
+        - name: GITHUB_HOST_URL
+          value: $(params.GITHUB_HOST_URL)
         - name: GITHUB_TOKEN_SECRET_NAME
           value: $(params.GITHUB_TOKEN_SECRET_NAME)
         - name: GITHUB_TOKEN_SECRET_KEY
